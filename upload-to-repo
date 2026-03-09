@@ -1,0 +1,149 @@
+#!/bin/sh
+#
+# SPDX-License-Identifier: CDDL-1.0
+#
+# {{{ CDDL HEADER
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source. A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# }}}
+#
+# Copyright 2026 Peter Tribble
+#
+
+#
+# does all the appropriate updates and uploads files
+# to the repo
+#
+# assumes the new appstacks are in the staging area (/tmp/appstage)
+#
+# this is quite fragile
+#
+
+STAGE="/tmp/appstage"
+REPOHOST="pkgs.tribblix.org"
+REPODIR="/var/repo"
+PKGSKIP=""
+
+REPO="appstacks-m39"
+LREPODIR="${THOME}/appstacks"
+
+CCREATE="create-catalog"
+CFILE="catalog"
+HCREATE="create-index-from-catalog"
+HFILE="index.html"
+
+bail() {
+    echo "ERROR: $1"
+    exit 1
+}
+
+#
+# with -q or -n just refresh the metadata, there are no packages
+#
+case $1 in
+    -n|-q)
+	PKGSKIP="y"
+	;;
+esac
+
+if [ ! -d "$LREPODIR" ]; then
+    bail "Cannot find local repo dir $LREPODIR"
+fi
+
+#
+# sanity check
+#
+if [ ! -d "$THOME" ]; then
+    bail "Cannot find my home"
+fi
+if [ ! -d "${THOME}/tribblix-appstack" ]; then
+    bail "Cannot find the appstack repo"
+fi
+
+#
+# check for all the creation scripts
+#
+cd "${THOME}/tribblix-appstack" || bail "Cannot cd to appstack repo"
+if [ ! -f "$CCREATE" ]; then
+    bail "Cannot find $CCREATE"
+fi
+if [ ! -f "$HCREATE" ]; then
+    bail "Cannot find $HCREATE"
+fi
+
+if [ -z "$PKGSKIP" ]; then
+#
+# is there anything to upload?
+#
+if [ ! -d "$STAGE" ]; then
+    bail "No staging area"
+fi
+FTOUPLOAD=$(/bin/ls -1 ${STAGE}/*.zap 2>/dev/null)
+if [ -z "$FTOUPLOAD" ]; then
+    bail "Cannot find anything to upload"
+fi
+
+#
+# the first thing we need to do is copy the files from the staging area
+# to the local repo, because the metadata creation scripts rely on that
+# they're copied now, deleted later
+#
+# if signatures are missing, create them here (may be the case if the
+# zap files are built elsewhere)
+#
+# exit if the pkg area already contains any matching files
+# as that's almost always a mistake
+#
+cd $STAGE || bail "Cannot cd to staging area"
+for file in $(/bin/ls -1 *.zap)
+do
+    if [ ! -f "${file}.sig" ]; then
+	${THOME}/build/sign-file "${BROOT}/${PKGNAME}.${PKGVER}.zap"
+    fi
+done
+for file in $(/bin/ls -1 *.zap*)
+do
+    if [ -f "${LREPODIR}/${file}" ]; then
+	bail "preexisting file in repo ${LREPODIR}/${file}"
+    fi
+done
+for file in $(/bin/ls -1 *.zap*)
+do
+    /bin/cp "${file}" "${LREPODIR}/${file}"
+done
+#
+# end of PKGSKIP
+#
+fi
+
+#
+# then we must create the metadata files
+#
+cd "${THOME}/tribblix-appstack" || bail "Cannot cd to appstack repo"
+echo "Creating catalog"
+./${CCREATE} > "${LREPODIR}/${CFILE}"
+echo "Creating html index"
+./${HCREATE} "${LREPODIR}/${CFILE}" > "${LREPODIR}/${HFILE}"
+
+#
+# we upload all the relevant files from the staging area
+# and delete them all once we're done
+#
+echo "Uploading files"
+if [ -n "$PKGSKIP" ]; then
+    scp "${LREPODIR}/${HFILE}" "${LREPODIR}/${CFILE}" "${REPOHOST}:${REPODIR}/${REPO}"
+else
+    cd $STAGE || bail "Cannot cd to staging area"
+    scp ./*.zap ./*.zap.sig "${LREPODIR}/${HFILE}" "${LREPODIR}/${CFILE}" "${REPOHOST}:${REPODIR}/${REPO}"
+fi
+cd "$THOME" || bail "Cannot cd to build home"
+
+/bin/rm -fr $STAGE

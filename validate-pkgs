@@ -1,0 +1,131 @@
+#!/bin/ksh
+#
+# SPDX-License-Identifier: CDDL-1.0
+#
+# {{{ CDDL HEADER
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source. A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# }}}
+#
+# Copyright 2025 Peter Tribble
+#
+
+#
+# checks that the list of packages contained in the given file
+# is consistent - the packages exist and dependencies are met
+#
+
+THOME=${THOME:-/packages/localsrc/Tribblix}
+#
+# xref against this illumos catalog
+#
+ILVER=m37
+ARCH=i386
+
+CATALOG=${THOME}/illumos-pkgs-${ILVER}/pkgs/catalog
+
+GREP=/usr/bin/grep
+FGREP=/usr/bin/fgrep
+EGREP=/usr/bin/egrep
+#
+VERBOSE=""
+case $1 in
+-v)
+    # must come first, and pass it on
+    VERBOSE="-v"
+    shift
+    ;;
+esac
+
+case $# in
+0)
+	IOVL="appstack.pkgs"
+	;;
+1)
+	IOVL="$1"
+	;;
+*)
+	echo "Usage: $0 [file]"
+	exit 2
+	;;
+esac
+
+if [ ! -f "${IOVL}" ]; then
+    echo "ERROR: missing file ${IOVL}"
+    exit 1
+fi
+
+TMPF=/tmp/ovtmp.$$
+rm -f $TMPF
+touch $TMPF
+
+# just get the list of packages - in the case of mvi these might be
+# versioned, so need to strip any suffix off
+OVL="${TMPF}.i"
+awk -F. '{print $1}' "${IOVL}" > "${OVL}"
+
+PKGL=""
+for PKGI in $(<"${OVL}")
+do
+  if [ -f "${THOME}/build/${PKGI}/depend.${ARCH}" ]; then
+     # accumulate the depend files and invoke grep once later
+     PKGL="${PKGL} ${THOME}/build/${PKGI}/depend.${ARCH}"
+  elif [ -f "${THOME}/build/${PKGI}/depend" ]; then
+     # accumulate the depend files and invoke grep once later
+     PKGL="${PKGL} ${THOME}/build/${PKGI}/depend"
+  fi
+  if [ ! -d "${THOME}/build/${PKGI}" ]; then
+      for npkgi in $(awk -v p="$PKGI" -F'|' '{if ($1 == p) print $3}' "$CATALOG")
+      do
+	  echo "P $npkgi" >> $TMPF
+      done
+  fi
+done
+if [ -n "${PKGL}" ]; then
+  ${GREP} -h '^P' $PKGL >> $TMPF
+fi
+
+awk '{print $2}' $TMPF | sort -u > ${TMPF}.u
+OUTMISS=$(${FGREP} -v -x -f "${OVL}" ${TMPF}.u)
+if [ -n "${OUTMISS}" ]; then
+    echo ""
+    echo "Missing dependencies in file ${IOVL}:"
+    echo "============================================="
+    ${FGREP} -v -x -f "${OVL}" ${TMPF}.u
+fi
+
+if [ -n "${OUTMISS}" -a "X$VERBOSE" = "X-v" ]; then
+echo "Finding source of missing dependencies:"
+echo "======================================="
+for ndep in $OUTMISS
+do
+for PKGI in $(<"${OVL}")
+do
+  if [ -f "${THOME}/build/${PKGI}/depend.${ARCH}" ]; then
+      if ${GREP} -q -w "$ndep" "${THOME}/build/${PKGI}/depend.${ARCH}"
+      then
+	  echo "${PKGI} requires: ${ndep}"
+      fi
+  elif [ -f "${THOME}/build/${PKGI}/depend" ]; then
+      if ${GREP} -q -w "$ndep" "${THOME}/build/${PKGI}/depend"
+      then
+	  echo "${PKGI} requires: ${ndep}"
+      fi
+  fi
+  if [ ! -d "${THOME}/build/${PKGI}" ]; then
+      ${EGREP} "( |\|)${ndep}( |\|)" "$CATALOG" | awk -v p="$PKGI" -F'|' '{if ($1 == p) print $1" requires: " $3}'
+  fi
+done
+done
+echo "======================================="
+fi
+
+rm -f $TMPF ${TMPF}.u ${TMPF}.i

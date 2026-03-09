@@ -1,0 +1,85 @@
+#!/bin/ksh
+#
+# SPDX-License-Identifier: CDDL-1.0
+#
+# {{{ CDDL HEADER
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source. A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# }}}
+#
+# Copyright 2026 Peter Tribble
+#
+
+#
+# like the catalog, but neatly formatted as html
+#
+# derived from the catalog, so can be used for repos that
+# aren't up to date with the build tree
+#
+
+case $# in
+1)
+    CATALOG=$1
+    ;;
+*)
+    echo "Usage: $0 catalog-file"
+    exit 1
+    ;;
+esac
+
+if [ ! -f "$CATALOG" ]; then
+    echo "Cannot find $CATALOG"
+    exit 1
+fi
+
+cat <<EOF
+<html>
+<Head><title>Tribblix appstack catalog</title></head>
+<body>
+<h1>Tribblix AppStacks</h1>
+<dl>
+EOF
+
+while read -r line
+do
+  #pick first field
+  PKG=${line%%\|*}
+  #strip off a field
+  rline=${line#*\|}
+  #pick the second field
+  PKGVERS=${rline%%\|*}
+  #strip off another field
+  rline=${rline#*\|}
+  #pick the third field
+  DEPLIST=${rline%%\|*}
+  PKGI=apps/${PKG}/appstack.desc
+  if [ -f "${PKGI}" ]; then
+    echo "<dt><a name=\"${PKG}\"></a><b>${PKG}</b></dt>"
+    echo "<dd>"
+    echo "<ul>"
+    echo "<li>Version: ${PKGVERS}</li>"
+    echo "<li>Description: ${DEPLIST}</li>"
+    for mydep in $(<"apps/$PKG/appstack.pkgs")
+    do
+	echo "<li>Requires: $mydep</li>"
+    done
+    echo "</ul>"
+    echo "</dd>"
+  fi
+done < "$CATALOG"
+
+cat <<EOF
+</dl>
+<hr>
+<p><a href="https://www.tribblix.org/">Tribblix</a></p>
+</body>
+</html>
+EOF

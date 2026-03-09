@@ -1,0 +1,248 @@
+An appstack - or application stack - is a set of packages and
+configuration that manages the running of an application in a variety
+of environments.
+
+The initial implementation, as released in Tribblix m39, is as a
+custom zone brand.
+
+Below are some thoughts about the rationale and design.
+
+The target environments are:
+
+* a regular system, in the global zone
+
+* a regular illumos zone
+
+* zmvi-s
+
+* zmvi-x
+
+* mvi
+
+The mvi environments are based on the mvi project
+https://github.com/ptribble/mvi
+and are for a shared-ip zone (zmvi-s), exclusive-ip zone (zmvi-x), and
+a standalone bootable ISO (mvi).
+
+In the mvi variants, there is a baseline of files necessary for any
+such system to work, and then the application package and any
+dependencies are added. In Tribblix, application packages do not
+declare explicit dependencies on the core system packages, so the core
+OS can be provided by custom replacement packages that provide the
+appropriate subset of files. At the application level, the packages
+are the normal packages.
+
+Note that the regular system and mvi options may be run in a VM, for
+example in bhyve. That allows for a fairly minimal base OS image.
+
+In addition to packages, the appstack requires:
+
+* application configuration
+
+* application data
+
+* application logs
+
+The appstack metadata defines where these are to be found. This allows
+external tools to manage the configuration, back up data for safe
+keeping, and process or forward any logs as needed.
+
+Each appstack provides a wrapper script to start, stop, and
+manage the service provided by the appstack. When run on a normal
+system, this becomes an SMF method. When run in an mvi context, the
+script is simply launched by init. As in:
+  /usr/bin/sed -i 's:/lib/svc/bin/svc.startd:/usr/bin/sleep Inf:' "${ZROOTBASE}/${ZNAME}/root/etc/inittab"
+where we use the script instead of sleep.
+
+Optionally, an appstack may provide hooks to integrate with other
+services. The mechanism for this has not yet been designed, but the
+services I have in mind may include:
+* database
+* firewall
+* backup
+* telemetry
+* ingress proxy
+* egress proxy
+* dns/mdns
+* certificate store
+* logger
+* secrets vault
+
+Additionally, appstack clusters can be created, formed of multiple
+connected appstacks. This needs to spread across multiple systems,
+which requires some sort of network-wide coordination service.
+
+The aim is for appstacks to be integrated with router zones, allowing
+whole networks of appstacks to be constructed inside a system and exposed
+solely via the router.
+
+What would the user expect to type?
+
+zap create-zone -z web1 -t appstack \
+  -x 192.168.1.223 \
+  -a nginx \
+  -A /path/to/config.file
+
+The system would look up the nginx appstack, and build the zone
+according to the configuration for that appstack.
+
+The appstack configuration could require additional configuration
+options. If so, the zone creation would fail and the error message
+would indicate what's missing.
+
+(I'm thinking I could potentially reuse -K to pass the arguments
+here. I'm imagining a simple set of key=value arguments, just like -K
+provides.)
+
+An appstack is delivered as a zip file. We use that elsewhere, the
+model works. So the catalog looks like a normal package catalog, with
+versions and checksums.
+
+The zip file contains:
+ - appstack.pkgs - mandatory, a list of required packages (and overlays???)
+ - a set of configuration requirements (properties)
+ - run.sh  - mandatory, the startup (method) script
+ - appstack.sh  - mandatory, a query+verify+config script
+ - appstack.version  - mandatory, the version of the appstack
+ - appstack.desc - mandatory, a short description file
+ - appstack.longdesc - optional, a long description file
+
+In terms of configuration, what we're really going to do is the
+equivalent of volume mapping in docker. So, the configuration
+requirement might be the following requirement
+
+config_file: /opt/tribblix/haproxy/etc/haproxy.cfg
+
+and that tells you that the appstack is expecting to be handed a
+configuration file, and the argument is where it ends up.
+
+So in this case what we would do is
+
+-K config_file=/export/home/srv1/haproxy.cfg
+
+and zap makes sure that this gets shared with the newly created zone
+and inside the zone ends up in the right place.
+
+In practice, you would use directories, not files.
+zonecfg configures fs resources, not files. So, if we had a property
+listed in the properties files called config_dir that had the value
+/opt/tribblix/haproxy/conf, then saying
+
+-K config_dir=/export/home/srv1
+
+is sort of equivalent to the docker volume mount
+
+-v /export/home/srv1:/opt/tribblix/haproxy/conf:ro
+
+and results in
+
+add fs
+set dir=/opt/tribblix/haproxy/conf
+set special=/export/home/srv1
+set type=lofs
+add options [ro,nodevices]
+end
+
+Now, volume mounts the way that docker have exposed them is a
+terrible abstraction - it forces the user to know the inner layout of
+a container. Here, the container knows what its layout is (that's the
+existing key for the property), you just need to know what your view
+of the world is.
+
+Note that while we always want nodevices (I think that's true), then
+we don't always want ro - we want the app to be able to write to itls
+log file, for example.
+
+We also want some way of checking that the target location is
+correct. For example, that a configuration directory actually contains
+a configuration file.
+
+With a little bit of convention this becomes even easier. So we could
+have standard directives:
+
+data_dir
+config_dir
+log_dir
+
+and then you could swap appstacks and have everything continue to work
+seamlessly. (I can imagine that something like log_dir could have sane
+defaults, eg /var/applog/$zonename.)
+
+If you have files, then they're simply copied into place. Directories
+are mapped, files are copied. That distinction needs to be fully given
+in the documentation.
+
+We don't need the port-mapping feature of docker. We have fully
+functional networking, it's all native. We might want something like
+EXPOSE to declare what ports are available (just in case we wanted to
+stick a firewall in front - which is a good thing, we could create a
+firewall config directly from that).
+
+What we might also want is to define a connector. The aim here is
+something like to talk to a database (in the widest sense). You might
+not set anything up, but you might be required to supply something
+like
+
+-K dbserver=dbhost.local:3367
+
+or maybe something more generic like a jdbc connection string.
+
+You might want to be able to supply files rather than strings. (Eg to
+hide credentials from ps output
+
+-K dbpasswd=@/my/super/safe/passwd.txt
+
+The construction is a multiphase process.
+
+1. Verify - have we got the parameters?
+2. Build - the zone configuration is constructed to match.
+3. Configure - the zone is given the opportunity to customize itself
+based on the given parameters.
+
+The point is that the zone hasn't been laid down until 'zoneadm
+install' is run, so we can't configure it until after that's been done.
+
+I think we want to download all the needed packages into the cache
+*first*, so we have the ability to exit cleanly if that fails.
+
+I think we want the appstack repo to be versioned. That way it will
+only see packages and updates that are appropriate for its OS version.
+(although updates in terms of packages will be handled via updates to
+the packages in the current repo, as normal).
+
+The appstack repo names will be appstack-m39, appstack-m39.sparc
+
+For an appstack named foo, of version foover, it will be in a file
+APPfoo.foover.zap
+and the catalog line for it is
+foo|foover|Description of foo|size|checksum|
+
+The catalog is the same as the pkg catalog, with mostly the same
+fields. However, the pkg dependencies (field #3) has been replaced by
+the description.
+
+
+There are a number of extra things needed here:
+1. An appstack configuration builder. A command that shows what
+configuration is required, allows the user to fill in the boxes, and
+to save the answers as a file that can be passed as the -A argument to
+create-zone and pkgcreatezone.
+2. A zap subcommand to search for and list available appstacks
+3. A zap subcommand to describe an appstack, would have to download
+it, show the long description, and what configuration options are
+available
+
+So creating an appstack zone is:
+1. Download the appstack file into the appstack cache.
+2. Unpack the appstack into a temporary location.
+3. Ensure all packages required are retrieved into the cache.
+** Exit fatally if any failure above **
+4. Check we have all the configuration values. Either because we don't
+need 'em or we're passed them. If we don't, tell the user what to do
+and exit nicely.
+5. Create the zone config using the set of directory mappings we've got
+from the configuration step.
+6. Install the zone using the list of packages.
+7. Copy any files into place.
+8. Set up inittab to start the app at boot.
+9. Boot.

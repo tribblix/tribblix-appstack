@@ -1,0 +1,84 @@
+#!/bin/ksh
+#
+# SPDX-License-Identifier: CDDL-1.0
+#
+# {{{ CDDL HEADER
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source. A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# }}}
+#
+# Copyright 2026 Peter Tribble
+#
+
+#
+# creates the appstack catalog, which has the format
+#
+# name|version|Short description of appstack|size|checksum|
+#
+
+LREPODIR="${THOME}/appstacks"
+
+bail() {
+    echo "ERROR: $1"
+    exit 1
+}
+
+if [ ! -d "$LREPODIR" ]; then
+    bail "Cannot find local repo dir $LREPODIR"
+fi
+
+cd apps || bail "cd to apps failed"
+
+#
+# first check
+#
+for app in *
+do
+    for file in appstack.pkgs appstack.sh appstack.version appstack.desc run.sh
+    do
+	if [ ! -f "${app}/${file}" ]; then
+	    bail "missing ${app}/${file}"
+	fi
+    done
+done
+
+#
+# now create catalog
+#
+for app in *
+do
+    appver=$(<"${app}/appstack.version")
+    appdesc=$(<"${app}/appstack.desc")
+    APPFILE="${LREPODIR}/APP${app}.${appver}.zap"
+    if [ -f "${APPFILE}" ]; then
+	if [ "${APPFILE}.size" -nt "${APPFILE}" ]; then
+	    PKGSIZE=$(<"${APPFILE}.size")
+	else
+	    if [ -x /usr/bin/stat ]; then
+		PKGSIZE=$(/usr/bin/stat --printf="%s" "${APPFILE}")
+	    else
+		PKGSIZE=$(/bin/ls -l "${APPFILE}" | /usr/bin/awk '{print $5}')
+	    fi
+	    /bin/rm -f "${APPFILE}.size"
+	    echo "$PKGSIZE" > "${APPFILE}.size"
+	fi
+	if [ "${APPFILE}.md5" -nt "${APPFILE}" ]; then
+	    PKGMD5=$(<"${APPFILE}.md5")
+	else
+	    PKGMD5=$(openssl md5 "${APPFILE}"| /usr/bin/awk '{print $NF}')
+	    /bin/rm -f "${APPFILE}.md5"
+	    echo "$PKGMD5" > "${APPFILE}.md5"
+	fi
+	echo "${app}|${appver}|${appdesc}|${PKGSIZE}|${PKGMD5}|"
+    else
+	echo "${app}|${appver}|${appdesc}|XXXX|XXXX|"
+    fi
+done

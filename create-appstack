@@ -1,0 +1,119 @@
+#!/bin/ksh
+#
+# SPDX-License-Identifier: CDDL-1.0
+#
+# {{{ CDDL HEADER
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source. A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+# }}}
+#
+# Copyright 2026 Peter Tribble
+#
+
+#
+# fix environment
+#
+LC_ALL=C
+export LC_ALL
+TZ=UTC
+export TZ
+
+#
+# package the given appstack
+#
+case $# in
+2)
+	PKGNAME="$1"
+	BROOT="$2"
+	;;
+1)
+	PKGNAME="$1"
+	BROOT="/tmp/appstage"
+	;;
+*)
+	echo "Usage: $0 appstack_name [output_root]"
+	exit 1
+	;;
+esac
+
+bail() {
+    echo "ERROR: $1"
+    exit 1
+}
+
+#
+# Default locations
+#
+THOME=${THOME:-/packages/localsrc/Tribblix}
+BUILD="${THOME}/build"
+APPSTACK="${THOME}/tribblix-appstack"
+MYARCH=$(uname -p)
+
+#
+# sanity check
+#
+if [ ! -d "$APPSTACK" ]; then
+   bail "unable to find build directory $APPSTACK"
+fi
+if [ ! -d "$BROOT" ]; then
+   mkdir -p "${BROOT}"
+fi
+if [ ! -d "$BROOT" ]; then
+   bail "unable to find temporary directory $BROOT"
+fi
+if [ ! -d "${APPSTACK}/apps/${PKGNAME}" ]; then
+   echo "Please create ${APPSTACK}/apps/${PKGNAME}"
+   bail "missing package data"
+fi
+if [ ! -f "${APPSTACK}/apps/${PKGNAME}/appstack.version" ]; then
+   echo "Please create ${APPSTACK}/apps/${PKGNAME}/appstack.version"
+   bail "missing package data"
+fi
+
+PKGVER=$(<"${APPSTACK}/apps/${PKGNAME}/appstack.version")
+if [ -f "${APPSTACK}/apps/${PKGNAME}/appstack.version.${MYARCH}" ]; then
+    PKGVER=$(<"${APPSTACK}/apps/${PKGNAME}/appstack.version.${MYARCH}")
+fi
+cd "$BROOT" || bail "no tmp directory"
+TDIR=app.$$
+if [ -d "${TDIR}" ]; then
+    bail "working directory already exists"
+fi
+mkdir "${TDIR}"
+cd "$TDIR" || bail "no directory to package"
+# copy packaging files from archive
+cp -r "${APPSTACK}/apps/${PKGNAME}" .
+mv "${PKGNAME}" "APP${PKGNAME}"
+cd "APP${PKGNAME}" || bail "no directory to package"
+if [ -f "appstack.version.${MYARCH}" ]; then
+    mv "appstack.version.${MYARCH}" "appstack.version"
+fi
+if [ -f "appstack.pkgs.${MYARCH}" ]; then
+    mv "appstack.pkgs.${MYARCH}" "appstack.pkgs"
+fi
+
+# create the zap file
+# 7z gives us an extra 2-3% reduction in file size
+#zip -9 -q -r ${PKGNAME} ${PKGNAME}
+cd "$BROOT" || bail "oops"
+rm -f "APP${PKGNAME}.${PKGVER}.zap" "APP${PKGNAME}.${PKGVER}.zap.md5" "APP${PKGNAME}.${PKGVER}.zap.sig"
+cd "$BROOT/$TDIR" || bail "oops"
+7za a -tzip -mx=9 -mfb=256 "${BROOT}/APP${PKGNAME}.${PKGVER}.zap" "APP${PKGNAME}"
+cd "$BROOT" || bail "oops"
+chmod a+r "APP${PKGNAME}.${PKGVER}.zap"
+cd /
+# pregenerate the md5 checksum ready for catalog creation
+openssl md5 "${BROOT}/APP${PKGNAME}.${PKGVER}.zap" | /usr/bin/awk '{print $NF}' > "${BROOT}/APP${PKGNAME}.${PKGVER}.zap.md5"
+# sign the zap file
+"${BUILD}"/sign-file "${BROOT}/APP${PKGNAME}.${PKGVER}.zap"
+
+ls -lh "${BROOT}/APP${PKGNAME}.${PKGVER}.zap"
+rm -fr "${BROOT}/${TDIR}"
