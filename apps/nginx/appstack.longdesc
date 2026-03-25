@@ -1,1 +1,8 @@
 The nginx web high-performance web server and reverse proxy
+
+The simplest way to configure this is to set data_dir to a directory
+containing a static website, which will then be served on port 80.
+
+For more advanced configuration, set config_dir to a directory containing
+site configuration files (this maps to the nginx sites-enabled directory,
+not to the main nginx conf directory).
