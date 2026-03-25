@@ -1,0 +1,9 @@
+The Unbound local DNS resolver
+
+You will need to set config_dir to a directory containing the unbound.conf
+file, which needs to set the interface (ip address of the server) and set
+access-control to allow your network, such as the following.
+
+server:
+	interface: 192.168.1.227
+	access-control: 192.168.0.0/16 allow
