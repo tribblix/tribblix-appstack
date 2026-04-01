@@ -150,7 +150,7 @@ existing key for the property), you just need to know what your view
 of the world is.
 
 Note that while we always want nodevices (I think that's true), then
-we don't always want ro - we want the app to be able to write to itls
+we don't always want ro - we want the app to be able to write to its
 log file, for example.
 
 We also want some way of checking that the target location is
@@ -172,11 +172,11 @@ If you have files, then they're simply copied into place. Directories
 are mapped, files are copied. That distinction needs to be fully given
 in the documentation.
 
-We don't need the port-mapping feature of docker. We have fully
-functional networking, it's all native. We might want something like
-EXPOSE to declare what ports are available (just in case we wanted to
-stick a firewall in front - which is a good thing, we could create a
-firewall config directly from that).
+We don't need the port-mapping feature of docker, but there's a
+net.properties file that uses EXPOSE to declare what ports are
+available (just in case we wanted to stick a firewall in front - which
+is a good thing, we could create a firewall config directly from
+that).
 
 What we might also want is to define a connector. The aim here is
 something like to talk to a database (in the widest sense). You might
@@ -187,8 +187,7 @@ like
 
 or maybe something more generic like a jdbc connection string.
 
-You might want to be able to supply files rather than strings. (Eg to
-hide credentials from ps output
+You might want to be able to supply files rather than strings.
 
 -K dbpasswd=@/my/super/safe/passwd.txt
 
