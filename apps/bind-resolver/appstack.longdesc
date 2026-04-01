@@ -1,0 +1,4 @@
+A local DNS resolver using bind.
+
+The only configurable property is log_dir, which can be set if you want to
+see the logs in the global zone.
