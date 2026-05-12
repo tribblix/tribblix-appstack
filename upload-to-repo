@@ -32,7 +32,7 @@ REPOHOST="pkgs.tribblix.org"
 REPODIR="/var/repo"
 PKGSKIP=""
 
-REPO="appstacks-m39"
+REPO="appstacks-m40"
 LREPODIR="${THOME}/appstacks"
 
 CCREATE="create-catalog"
