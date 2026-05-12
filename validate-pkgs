@@ -15,7 +15,7 @@
 #
 # }}}
 #
-# Copyright 2025 Peter Tribble
+# Copyright 2026 Peter Tribble
 #
 
 #
@@ -27,7 +27,7 @@ THOME=${THOME:-/packages/localsrc/Tribblix}
 #
 # xref against this illumos catalog
 #
-ILVER=m37
+ILVER=m39
 ARCH=i386
 
 CATALOG=${THOME}/illumos-pkgs-${ILVER}/pkgs/catalog
