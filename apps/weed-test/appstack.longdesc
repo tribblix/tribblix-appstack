@@ -1,0 +1,7 @@
+A simple single-node SeaweedFS server.
+
+Has no configurable properties. Runs in unauthenticated "Allow All"
+mode for development.
+
+Point your browser at port 23646 on the zone's IP address to access the
+Admin UI.
